@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>井字棋人机对战 · AI Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --cell: #334155;
+    --cell-hover: #475569;
+    --accent: #38bdf8;
+    --x-color: #f472b6;
+    --o-color: #34d399;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .container {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 28px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 6px; }
+  .control-group label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  select, button {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid #475569;
+    background: var(--cell);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  select:hover, button:hover { background: var(--cell-hover); }
+  button.primary {
+    background: var(--accent);
+    color: #0f172a;
+    font-weight: 600;
+    border: none;
+    width: 100%;
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  .status {
+    text-align: center;
+    font-size: 16px;
+    min-height: 24px;
+    margin: 12px 0;
+    font-weight: 600;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 0 auto 16px;
+    aspect-ratio: 1;
+  }
+  .cell {
+    background: var(--cell);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 44px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    user-select: none;
+  }
+  .cell:hover:not(.taken) { background: var(--cell-hover); }
+  .cell.taken { cursor: default; }
+  .cell.x { color: var(--x-color); }
+  .cell.o { color: var(--o-color); }
+  .cell.win { background: #facc15; color: #0f172a; }
+  .scoreboard {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .score-box {
+    background: var(--cell);
+    border-radius: 8px;
+    padding: 10px 6px;
+  }
+  .score-box .label { font-size: 12px; color: var(--muted); }
+  .score-box .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button { flex: 1; }
+  .reset-score {
+    background: transparent;
+    border: 1px solid #475569;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>井字棋人机对战</h1>
+    <div class="subtitle">基于 minimax 算法的 AI 对手</div>
+
+    <div class="controls">
+      <div class="control-group">
+        <label for="difficulty">AI 难度</label>
+        <select id="difficulty">
+          <option value="unbeatable">不可战胜（minimax）</option>
+          <option value="random">随机（入门）</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="side">你执子</label>
+        <select id="side">
+          <option value="X">X（先手）</option>
+          <option value="O">O（后手）</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="status" id="status">你执 X，请落子</div>
+
+    <div class="board" id="board"></div>
+
+    <div class="scoreboard">
+      <div class="score-box">
+        <div class="label">玩家胜</div>
+        <div class="value" id="score-player">0</div>
+      </div>
+      <div class="score-box">
+        <div class="label">平局</div>
+        <div class="value" id="score-draw">0</div>
+      </div>
+      <div class="score-box">
+        <div class="label">AI 胜</div>
+        <div class="value" id="score-ai">0</div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="primary" id="restart">重新开始</button>
+      <button class="reset-score" id="resetScore">清空计分</button>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+/* ============ 核心游戏逻辑（可被 Node 直接 require/测试） ============ */
+
+// 获胜连线
+const WIN_LINES = [
+  [0,1,2],[3,4,5],[6,7,8], // 行
+  [0,3,6],[1,4,7],[2,5,8], // 列
+  [0,4,8],[2,4,6]          // 对角线
+];
+
+// 判断当前棋盘是否有人获胜，返回 'X' / 'O' / null
+function getWinner(board) {
+  for (const line of WIN_LINES) {
+    const [a,b,c] = line;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return board[a];
+    }
+  }
+  return null;
+}
+
+// 返回所有空位下标
+function availableMoves(board) {
+  const moves = [];
+  for (let i = 0; i < 9; i++) {
+    if (!board[i]) moves.push(i);
+  }
+  return moves;
+}
+
+// 棋盘是否下满
+function isBoardFull(board) {
+  return availableMoves(board).length === 0;
+}
+
+/**
+ * minimax 算法（含 α-β 剪枝）
+ * @param {Array} board  当前棋盘，长度 9，空为 null
+ * @param {number} depth 递归深度
+ * @param {boolean} isMaximizing 当前是否为 AI（最大化方）回合
+ * @param {string} aiMark  AI 的棋子（'X' 或 'O'）
+ * @param {string} humanMark 玩家的棋子
+ * @param {number} alpha  最佳已保证最大值
+ * @param {number} beta   最佳已保证最小值
+ * @returns {number} 评分：AI 胜=+10-depth，平局=0，AI 负=-10+depth
+ */
+function minimax(board, depth, isMaximizing, aiMark, humanMark, alpha, beta) {
+  const winner = getWinner(board);
+  if (winner === aiMark) return 10 - depth;      // AI 赢，越快越好
+  if (winner === humanMark) return depth - 10;   // AI 输，越慢越好
+  if (isBoardFull(board)) return 0;              // 平局
+
+  if (isMaximizing) {
+    let best = -Infinity;
+    for (const move of availableMoves(board)) {
+      board[move] = aiMark;
+      const score = minimax(board, depth + 1, false, aiMark, humanMark, alpha, beta);
+      board[move] = null;
+      best = Math.max(best, score);
+      alpha = Math.max(alpha, best);
+      if (beta <= alpha) break; // α 剪枝
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (const move of availableMoves(board)) {
+      board[move] = humanMark;
+      const score = minimax(board, depth + 1, true, aiMark, humanMark, alpha, beta);
+      board[move] = null;
+      best = Math.min(best, score);
+      beta = Math.min(beta, best);
+      if (beta <= alpha) break; // β 剪枝
+    }
+    return best;
+  }
+}
+
+/**
+ * 计算 AI 的最佳走法
+ * @returns {number} 最佳格子下标
+ */
+function findBestMove(board, aiMark, humanMark) {
+  let bestScore = -Infinity;
+  let bestMove = -1;
+  for (const move of availableMoves(board)) {
+    board[move] = aiMark;
+    const score = minimax(board, 0, false, aiMark, humanMark, -Infinity, Infinity);
+    board[move] = null;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+  return bestMove;
+}
+
+// 随机走法
+function findRandomMove(board) {
+  const moves = availableMoves(board);
+  if (moves.length === 0) return -1;
+  return moves[Math.floor(Math.random() * moves.length)];
+}
+
+/* ============ 浏览器界面部分 ============ */
+
+// 供 Node 测试时导出
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { WIN_LINES, getWinner, availableMoves, isBoardFull, minimax, findBestMove, findRandomMove };
+}
+
+// 以下仅在浏览器环境运行
+if (typeof document !== "undefined") {
+  const boardEl = document.getElementById("board");
+  const statusEl = document.getElementById("status");
+  const difficultyEl = document.getElementById("difficulty");
+  const sideEl = document.getElementById("side");
+
+  let board;            // 长度 9 数组
+  let humanMark;        // 玩家棋子
+  let aiMark;           // AI 棋子
+  let gameOver;
+  let scores = { player: 0, draw: 0, ai: 0 };
+
+  function newGame() {
+    board = Array(9).fill(null);
+    gameOver = false;
+    humanMark = sideEl.value;
+    aiMark = humanMark === "X" ? "O" : "X";
+    render();
+    setStatus(`你执 ${humanMark}，请落子`);
+    // 如果玩家选 O，AI 先手
+    if (aiMark === "X") {
+      setTimeout(aiMove, 350);
+    }
+  }
+
+  function setStatus(text) { statusEl.textContent = text; }
+
+  function render() {
+    boardEl.innerHTML = "";
+    for (let i = 0; i < 9; i++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      if (board[i]) {
+        cell.textContent = board[i];
+        cell.classList.add("taken", board[i].toLowerCase());
+      }
+      cell.addEventListener("click", () => humanMove(i));
+      boardEl.appendChild(cell);
+    }
+    // 高亮获胜连线
+    const winLine = getWinLine();
+    if (winLine) {
+      winLine.forEach(i => boardEl.children[i].classList.add("win"));
+    }
+  }
+
+  function getWinLine() {
+    for (const line of WIN_LINES) {
+      const [a,b,c] = line;
+      if (board[a] && board[a] === board[b] && board[a] === board[c]) return line;
+    }
+    return null;
+  }
+
+  function humanMove(i) {
+    if (gameOver || board[i]) return;
+    board[i] = humanMark;
+    if (checkEnd()) return;
+    render();
+    setStatus("AI 思考中…");
+    setTimeout(aiMove, 350);
+  }
+
+  function aiMove() {
+    if (gameOver) return;
+    let move;
+    if (difficultyEl.value === "unbeatable") {
+      move = findBestMove([...board], aiMark, humanMark);
+    } else {
+      move = findRandomMove([...board]);
+    }
+    if (move === -1) return;
+    board[move] = aiMark;
+    render();
+    checkEnd();
+  }
+
+  function checkEnd() {
+    const winner = getWinner(board);
+    if (winner) {
+      gameOver = true;
+      if (winner === humanMark) {
+        scores.player++;
+        setStatus("🎉 你赢了！");
+      } else {
+        scores.ai++;
+        setStatus("🤖 AI 获胜！");
+      }
+      updateScore();
+      render();
+      return true;
+    }
+    if (isBoardFull(board)) {
+      gameOver = true;
+      scores.draw++;
+      setStatus("平局！");
+      updateScore();
+      return true;
+    }
+    setStatus(`轮到你（${humanMark}）落子`);
+    return false;
+  }
+
+  function updateScore() {
+    document.getElementById("score-player").textContent = scores.player;
+    document.getElementById("score-draw").textContent = scores.draw;
+    document.getElementById("score-ai").textContent = scores.ai;
+  }
+
+  document.getElementById("restart").addEventListener("click", newGame);
+  document.getElementById("resetScore").addEventListener("click", () => {
+    scores = { player: 0, draw: 0, ai: 0 };
+    updateScore();
+  });
+  difficultyEl.addEventListener("change", newGame);
+  sideEl.addEventListener("change", newGame);
+
+  newGame();
+}
+</script>
+</body>
+</html>
